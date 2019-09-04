@@ -1,0 +1,237 @@
+\documentclass{amsart}
+\usepackage[backend=biber,style=nature,eprint=false,url=false,doi=false,date=year]{biblatex}
+\usepackage[no-math]{fontspec}
+\usepackage{unicode-math}
+\setmainfont[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,ItalicFont=*-italic]{texgyretermes}
+\setmathfont{texgyretermes-math.otf}
+\usepackage[hidelinks=true,colorlinks=true,allcolors=blue]{hyperref}
+
+\addbibresource{main.bib}
+\title{Derivation of lda2vec}
+\author{Abhishek Sarkar}
+
+\DeclareMathOperator\argmin{\arg\min}
+\DeclareMathOperator\N{Normal}
+\DeclareMathOperator\Dir{Dirichlet}
+\newcommand\vd{\symbf{d}}
+\newcommand\vw{\symbf{w}}
+\newcommand\ma{\symbf{A}}
+\newcommand\mc{\symbf{C}}
+\newcommand\mx{\symbf{X}}
+\newcommand\ml{\symbf{L}}
+\newcommand\mf{\symbf{F}}
+\newcommand\mU{\symbf{U}}
+\newcommand\md{\symbf{D}}
+\newcommand\mv{\symbf{V}}
+\newcommand\mw{\symbf{W}}
+\newcommand\mz{\symbf{Z}}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+lda2vec is a new method to learn word embeddings from a corpus of documents
+\cite{Moody2016}. The key idea of the method is that documents are typically
+about some small number of topics, which is an additional level of context
+which can aid in the learning of useful embeddings. Here, we review topic
+models and word embedding models in order to understand how lda2vec combines
+these ideas.
+
+\section{Topic models}
+
+Topic models represent the joint distribution of words which appear in each
+document, \emph{but not their ordering}. We assume the data are represented as
+\(x_{ij}\), which denotes the number of occurrences of word \(j = 1, \ldots,
+p\) in document \(i = 1, \ldots, n\).
+
+\subsection{Latent semantic analysis}
+
+LSA finds a low-rank approximation \(\ma\) to the matrix \(\mx\). To find the
+best approximation, we minimize the Frobenius norm of the error in
+approximation:
+%
+\begin{equation}
+  \begin{split}
+    \ma^* = \argmin_{\ma} \Vert \mx - \ma \Vert_F \\
+    \text{s.t. \(\ma\) is rank \(K\)}
+  \end{split}
+\end{equation}
+
+It is well known that the solution to this optimization problem is the
+truncated SVD of \(\mx\) \cite{Eckart1936}:
+%
+\begin{align}
+  \mx &= \mU\md\mv'\\
+  \ma^* &= \sum_{k=1}^K \mU_k\mkern+2mu d_{kk} \mv_k'
+\end{align}
+
+It is also well known that this minimization problem corresponds to maximizing
+a Gaussian likelihood \cite{Tipping1999}:
+%
+\begin{equation}
+  \mx_i \sim \N(\mw\mz_i, \sigma^2 \symbf{I})
+\end{equation}
+
+where the maximum likelihood solution is \(\mw^* = \sum_{k=1}^K \mv_k d_{kk},
+\mz^* = \sum_{k=1}^K \mU_k\). In other words, LSA is PCA on the count matrix
+\(\mx\).
+
+\subsection{Latent Dirichlet Allocation}
+
+Unlike LSA, which makes a Gaussian assumption about the observed word counts,
+LDA \cite{Blei2003} makes a Multinomial assumption which is more faithful to
+the fact that the data are counts (non-negative integers).
+%
+\begin{align}
+  x_{i1}, \ldots, x_{ip} &\sim \operatorname{Multinomial}(x_i^+, \pi_{i1}, \ldots, \pi_{ip})\\
+  \pi_{ij} &= \sum_{k=1}^K l_{ik} f_{jk}\\
+  l_{i1}, \ldots, l_{iK} &\sim \Dir(\alpha)\\
+  f_{j1}, \ldots, f_{jK} &\sim \Dir(\beta)
+\end{align}
+
+where \(x_i^+ = \sum_j x_{ij}\), and \(\Dir(\alpha)\) denotes the Dirichlet
+distribution with scale \(\alpha\) and base measure \((1, \ldots, 1)\). This
+simplification of the generative model comes from multiplying the likelihood of
+individual words. Here, \(l_{ik}\) denotes the topic mixing proportion of
+document \(i\) in topic \(k\) and \(f_{jk}\) denotes the probability (relative
+frequency) of word \(j\) in topic \(k\). Another way of interpreting this model
+is that the topics \(\mf_k\) give cluster centroids in the space of documents,
+and the loadings \(\ml_k\) give cluster probabilities for each document.
+
+The inference goal of LDA is to estimate the posterior distribution \(p(\ml,
+\mf \mid \mx)\), which is beyond the scope of this note. One simplification
+which is possible is to simply maximize the likelihood
+where \(\ml_k\) and \(\mf_k\) are constrained to be on the simplex (have
+non-negative entries which sum to 1) \cite{Engelhardt2007}.
+
+\section{Word embeddings}
+
+Word embeddings model the conditional distribution \(p(\vw_t \mid
+\mathcal{C})\), where words \(\vw_t\) are drawn from a vocabulary
+\(\mathcal{V}\) of size \(p\) which are represented as one-hot
+\(p\mkern+1mu\)-vectors and \(\mathcal{C}\) denotes a context. The context is
+typically assumed to be some window around \(\vw_t\), which introduces spatial
+relevance into the model, but not necessarily ordering.
+
+\subsection{Neural network language model}
+
+NNLM \cite{Bengio2003} assumes that the conditional distribution only depends
+on the previous \(m\) words, and models \(p(\vw_t \mid \vw_{t-1}, \ldots,
+\vw_{t - m + 1})\). Written this way, it is clear that the model needs to
+predict \(\vw_t\) from \(\vw_{t-1}, \ldots, \vw_{t - m + 1}\), which is
+achieved with a neural network \(g\). The key idea of NNLM is to simultaneously
+learn \(g\) and a \emph{linear} embedding \(C\), such that:
+%
+\begin{equation}
+  p(\vw_t \mid \vw_{t-1}, \ldots, \vw_{t - m + 1}) = g(C(\vw_{t-1}), \ldots, C(\vw_{t - m + 1}))
+\end{equation}
+
+Since \(C\) is linear, it is represented by a \(p \times d\) matrix \(\mc\),
+and embedding is performed by computing \(\mc \vw_t\). The complete neural
+network \(g \circ C\) maps \(m \times p\) input to a \(p\)-dimensional
+probability vector. Since \(\vw_t\) is one-hot, the task of training \(g\) is a
+binary classification problem with loss function:
+%
+\begin{equation}
+  \ell = -\sum_{t=1}^T \vw_t \cdot \ln g(\mc\vw_{t-1}, \ldots, \mc\vw_{t - m + 1})
+\end{equation}
+
+\subsection{Skip-gram model}
+
+The two key ideas of word2vec \cite{Mikolov2013a,Mikolov2013b} are: (1) learn
+the embedding \(\mc\) separately from learning \(g\), and (2) learn \(\mc\)
+from both future and past words. One way to represent this idea is the
+\emph{skip-gram model}:
+%
+\begin{align}
+  p(\vw_{t-m}, \ldots, \vw_{t+m} \mid \vw_t) &= \prod_{k=-m}^{m} p(\vw_{t+k} \mid \vw_t)\\
+  p(\vw_{t+k} \mid \vw_t) &= \operatorname{softmax}((\mc\vw_{t+k})' \mc\vw_t)
+\end{align}
+
+where we abuse notation to exclude negative indices \(t + k\) and \(k = 0\). As
+in the case of NNLM, this is binary classification problem, with loss function:
+%
+\begin{equation}
+  \ell = -\sum_{t=1}^T \sum_{k=-m}^m \vw_{t + k} \cdot \ln p(\vw_{t+k} \mid \vw_t)
+  \label{eq:skipgram}
+\end{equation}
+
+Computing the gradient of the loss is linear in the size of the vocabulary
+\(p\) because the softmax function requires summing over the vocabulary, which
+can be prohibitive. An alternative is to use the idea that a useful embedding
+should make it easy to distinguish true positive examples \((\vw_t,
+\vw_{t+k})\) drawn from the training data and true negative examples \((\vw_t,
+\vw_s)\) drawn from some noise distribution:
+%
+\begin{equation}
+  \ell = \sum_{t=1}^T \sum_{k=-m}^m \left[ \ln\sigma((\mc\vw_{t+k})'\mc\vw_t) +
+  \sum_{s=1}^S \ln\sigma(-(\mc\vw_s)'\mc\vw_t) \right]
+\end{equation}
+
+where \(\sigma\) denotes the sigmoid function. Evaluating this loss requires
+sparse vector products, which can be significantly faster.
+
+\section{lda2vec}
+
+Now, we have the concepts necessary to derive lda2vec. The key idea is to use
+the information of which document \(\vd_i\) each sequence \(\vw_{i,t-n+1},
+\ldots, \vw_{i,t}\) came from in the learned embedding. The intuition behind
+this idea is that the topics which comprise the document \(\vd_i\) change the
+word probabilities which can appear, which gives more information than just the
+local context (neighboring \(n\) words).
+
+To actually implement this idea, we embed each \(\vw_{i,t}\) into a
+\(d\)-dimensional space as in word2vec, by computing \(\mc \vw_{i,t}\). The
+important new idea is that the document \(\vd_i\) is represented in the
+\emph{same} \(d\)-dimensional space using an LDA-like model:
+%
+\begin{align}
+  d_{ij} &= \sum_{k=1}^K l_{ik} f_{jk}\\
+  l_{i1}, \ldots, l_{iK} &\sim \Dir(\alpha)
+\end{align}
+
+where \(j = 1, \ldots, d\) and we assume there are \(K\) topics. In what sense
+is this like LDA? Like LDA, the loadings \(\ml_i\) must be valid probability
+vectors over the \(K\) possible topics. Unlike LDA, the topics \(\mf_k\) are
+unconstrained because they describe the word embeddings (which are also
+unconstrained), not the word counts. The cluster analogy is perhaps less
+confusing: the topics give cluster centroids \emph{in the space of word
+  embeddings}, and the loadings give cluster probabilities. However, this
+analogy reveals that perhaps the idea of adding document embeddings to word
+embeddings doesn't quite make sense.
+
+The loss function now has two parts: the skip-gram loss depends on \(\mc\) as
+well as \(\ml, \mf\) (through \(\vd_i\)), and the Dirichlet negative log
+likelihood (up to a constant) is used as a penalty on \(\ml\).
+%
+\begin{multline}
+  \ell = \sum_{i=1}^n \sum_{t=1}^T \left[ \sum_{k=-m}^m
+    \ln\sigma((\mc\vw_{i,t+k})' (\mc\vw_{i,t} + \vd_i)) \right.\\
+    + \left.\sum_{s=1}^S \ln\sigma(-(\mc\vw_s)' (\mc\vw_{i,t} + \vd_i)) \right]
+  + \lambda \sum_{k=1}^K (\alpha - 1) \ln l_{ik}
+\end{multline}
+
+In this model, \(\alpha, \lambda, K\) are free parameters which need to be
+chosen e.g.~by cross validation. Another non-trivial choice is the noise
+distribution from which negative examples \(\vw_s\) are drawn from. Choosing
+\(\alpha < 1\) is suggested so that the loadings (cluster weights) \(\ml_i\)
+are sparse. More specifically, this choice puts probability density near the
+vertices of the \(K\)-simplex. In other words, we want each document to belong
+to few clusters.
+
+\section{Remarks}
+
+The evaluation of lda2vec is purely qualitative, and it is not clear from first
+principles that the key idea behind the method is actually useful. Does lda2vec
+actually achieve a better skip-gram loss (\ref{eq:skipgram}) on the training
+data than word2vec? Does it perform better on an analogy prediction task
+\cite{Mikolov2013b}? Do the learned word embeddings generalize better out of
+the training data, in terms of skip-gram loss on held out data? What about
+skip-gram loss on independent validation data (i.e., from a different but
+related source)? How much slower is lda2vec than word2vec in training time? Is
+the computational cost justified by improved performance on downstream tasks
+using the learned embeddings?
+
+\printbibliography
+\end{document}
