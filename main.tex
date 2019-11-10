@@ -127,7 +127,7 @@ learn \(g\) and a \emph{linear} embedding \(C\), such that:
   p(\vw_t \mid \vw_{t-1}, \ldots, \vw_{t - m + 1}) = g(C(\vw_{t-1}), \ldots, C(\vw_{t - m + 1}))
 \end{equation}
 
-Since \(C\) is linear, it is represented by a \(p \times d\) matrix \(\mc\),
+Since \(C\) is linear, it is represented by a \(d \times p\) matrix \(\mc\),
 and embedding is performed by computing \(\mc \vw_t\). The complete neural
 network \(g \circ C\) maps \(m \times p\) input to a \(p\)-dimensional
 probability vector. Since \(\vw_t\) is one-hot, the task of training \(g\) is a
